@@ -55,6 +55,19 @@ trap(struct trapframe *tf)
       wakeup(&ticks);
       release(&tickslock);
     }
+    if (myproc() != 0 && (tf->cs & 3) == 3)
+    {
+      myproc()->curalarmticks++;
+      if (myproc() != 0 && (myproc()->alarmticks == myproc()->curalarmticks)) // alarm interval expires
+      {
+        myproc()->curalarmticks = 0; // recount the ticks
+        tf->esp -= 4;
+        *((uint *)(tf->esp)) = tf->eip; // push eip to the stack
+        tf->eip = (uint)myproc()->alarmhandler; // execute handler
+      }
+      
+    }
+    
     lapiceoi();
     break;
   case T_IRQ0 + IRQ_IDE:
@@ -94,20 +107,25 @@ trap(struct trapframe *tf)
       uint a;
 
       a = PGROUNDDOWN(rcr2());
-      mem = kalloc();
-      if (mem == 0)
+      for (; a < myproc()->sz; a+=PGSIZE)
       {
-        cprintf("out of memory!\n");
-        // myproc()->killed = 1;
-        break;
+        mem = kalloc();
+        if (mem == 0)
+        {
+          cprintf("out of memory!\n");
+          // myproc()->killed = 1;
+          break;
+        }
+        memset(mem, 0, PGSIZE);
+        if (mappages(myproc()->pgdir, (char*)a, PGSIZE, V2P(mem), PTE_W|PTE_U) < 0) {
+          cprintf("out of memory (2)!\n");
+          kfree(mem);
+          // myproc()->killed = 1;
+          break;
+        }
       }
-      memset(mem, 0, PGSIZE);
-      if (mappages(myproc()->pgdir, (char*)a, PGSIZE, V2P(mem), PTE_W|PTE_U) < 0) {
-        cprintf("out of memory (2)!\n");
-        kfree(mem);
-        // myproc()->killed = 1;
-        break;
-      }
+      
+      
       break;
     
   }
